@@ -14,5 +14,4 @@ __pycache__/
 
 self_use/
 .vscode/
-
-.
+test.py

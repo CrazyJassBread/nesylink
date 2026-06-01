@@ -6,28 +6,28 @@ from .specs import TaskSpec
 
 BUILTIN_TASKS = (
     TaskSpec(
-        task_id="collect_key_easy",
-        gym_id="NesyLink-CollectKeyEasy-v0",
-        map_id="key_door",
+        task_id="task_1",
+        gym_id="task_1",
+        map_id="task_1",
         reward_id="collect_key",
         max_steps=500,
         mission="Collect the key and reach the exit.",
     ),
     TaskSpec(
-        task_id="kill_monsters_easy",
-        gym_id="NesyLink-KillMonstersEasy-v0",
-        map_id="kill_monsters",
+        task_id="task_2",
+        gym_id="task_2",
+        map_id="task_2",
         reward_id="kill_monster",
         max_steps=500,
         mission="Defeat the monster, collect the key, and reach the exit.",
     ),
     TaskSpec(
-        task_id="avoid_traps_easy",
-        gym_id="NesyLink-AvoidTrapsEasy-v0",
-        map_id="avoid_traps",
-        reward_id="sparse_exit",
+        task_id="task_3",
+        gym_id="task_3",
+        map_id="task_3",
+        reward_id="collect_key",
         max_steps=500,
-        mission="Reach the exit while avoiding traps.",
+        mission="Travel west through the chaser room, collect the key, return, and unlock the right door.",
     ),
 )
 

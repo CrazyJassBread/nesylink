@@ -6,14 +6,14 @@ class TaskRegistryTests(unittest.TestCase):
         from nesylink.tasks import get_task, list_tasks
 
         task_ids = [task.task_id for task in list_tasks()]
-        self.assertIn("collect_key_easy", task_ids)
-        self.assertIn("kill_monsters_easy", task_ids)
-        self.assertIn("avoid_traps_easy", task_ids)
+        self.assertIn("task_1", task_ids)
+        self.assertIn("task_2", task_ids)
+        self.assertIn("task_3", task_ids)
 
-        task = get_task("collect_key_easy")
-        self.assertEqual(task.map_id, "key_door")
+        task = get_task("task_1")
+        self.assertEqual(task.map_id, "task_1")
         self.assertEqual(task.reward_id, "collect_key")
-        self.assertEqual(task.gym_id, "NesyLink-CollectKeyEasy-v0")
+        self.assertEqual(task.gym_id, "task_1")
 
     def test_unknown_task_id_has_clear_error(self):
         from nesylink.tasks import get_task

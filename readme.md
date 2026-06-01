@@ -14,6 +14,8 @@
 
 `nesylink` provides a small, configurable dungeon game environment for RL experiments. It separates game mechanics, JSON maps, Python task specs, reward modules, and Gymnasium wrappers so users can start with built-in tasks or compose new environments without changing the core engine.
 
+> 对于 26 年春季数理逻辑课程的大作业设置，详情见 [数理逻辑大作业说明](docs/Mathematical-logic/readme.md)。
+
 ## Installation
 
 From source:
