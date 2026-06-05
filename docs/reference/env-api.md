@@ -37,6 +37,11 @@ Parameters:
 - `max_steps`
 - `render_mode`
 - `action_repeat`
+- `control_mode`: `"pixel"` or `"grid"`; defaults to `"pixel"`
+- `observation_mode`: `"full"` or `"grid"`; defaults to `"full"`
+- `monster_move_periods`: monster type to environment-step period mapping for grid mode
+- `max_monsters`: fixed monster slot count override
+- `max_inventory`: fixed inventory slot count; defaults to `2`
 - `api`
 
 Explicit parameters take precedence over task defaults. `map_path` takes
@@ -74,6 +79,14 @@ Default slot behavior:
 - `shield` blocks contact damage and never damages monsters
 - `sword` handles melee damage with a one-tile forward hitbox
 - action poses remain visible for multiple ticks in RGB renders, but damage/block resolution still happens on the triggering step only
+
+Grid control mode:
+
+- Movement actions move the player by exactly one tile.
+- Failed movement leaves the player tile unchanged and emits `action_blocked`.
+- Tile coordinates use `(x, y)`, where `x` is column `0..9` and `y` is row `0..7`.
+- The `grid` array is indexed as `grid[y, x]`.
+- Monster movement periods are measured in environment steps.
 
 ## Info Shape
 
@@ -120,6 +133,19 @@ Common keys:
 - `monsters_hp`: `int32`, shape `(max_monsters,)`
 
 Use `env.observation_space` for exact bounds in code.
+
+With `observation_mode="grid"`, pixel-coordinate keys are omitted. The grid
+observation keys are:
+
+- `grid`: `uint8`, shape `(8, 10)`
+- `player_tile`: `int32`, shape `(2,)`
+- `health`: `int32`, shape `(1,)`
+- `gold`: `int32`, shape `(1,)`
+- `keys`: `int32`, shape `(1,)`
+- `inventory_ids`: `int32`, shape `(max_inventory,)`
+- `monsters_tile`: `int32`, shape `(max_monsters, 2)`, padded with `[-1, -1]`
+- `monsters_active_mask`: `bool`, shape `(max_monsters,)`
+- `monsters_hp`: `int32`, shape `(max_monsters,)`, padded with `0`
 
 ## Rendering
 

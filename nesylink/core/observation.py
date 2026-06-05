@@ -51,7 +51,13 @@ def room_observation(room: RoomState, player: PlayerState) -> np.ndarray:
     return observation
 
 
-def build_observation(room: RoomState, player: PlayerState, max_monster_slots: int) -> dict[str, np.ndarray]:
+def build_observation(
+    room: RoomState,
+    player: PlayerState,
+    max_monster_slots: int,
+    *,
+    max_inventory: int = 2,
+) -> dict[str, np.ndarray]:
     grid = room_observation(room, player)
     player_tile = tile_from_position_px(player.position_px, player.size_px)
     monster_positions = np.full((max_monster_slots, 2), -1.0, dtype=np.float32)
@@ -74,8 +80,41 @@ def build_observation(room: RoomState, player: PlayerState, max_monster_slots: i
         "health": np.asarray([player.health], dtype=np.int32),
         "gold": np.asarray([player.gold], dtype=np.int32),
         "keys": np.asarray([player.keys], dtype=np.int32),
-        "inventory_ids": np.asarray(inventory_item_codes(player.items), dtype=np.int32),
+        "inventory_ids": np.asarray(inventory_item_codes(player.items, size=max_inventory), dtype=np.int32),
         "monsters_position_px": monster_positions,
+        "monsters_tile": monster_tiles,
+        "monsters_active_mask": monster_mask,
+        "monsters_hp": monster_hp,
+    }
+
+
+def build_grid_observation(
+    room: RoomState,
+    player: PlayerState,
+    max_monster_slots: int,
+    *,
+    max_inventory: int = 2,
+) -> dict[str, np.ndarray]:
+    grid = room_observation(room, player)
+    player_tile = tile_from_position_px(player.position_px, player.size_px)
+    monster_tiles = np.full((max_monster_slots, 2), -1, dtype=np.int32)
+    monster_mask = np.zeros((max_monster_slots,), dtype=np.bool_)
+    monster_hp = np.zeros((max_monster_slots,), dtype=np.int32)
+
+    for index, monster in enumerate(room.monsters.values()):
+        if index >= max_monster_slots:
+            break
+        monster_tiles[index] = np.asarray(monster.tile_pos, dtype=np.int32)
+        monster_mask[index] = True
+        monster_hp[index] = monster.hp
+
+    return {
+        "grid": grid,
+        "player_tile": np.asarray(player_tile, dtype=np.int32),
+        "health": np.asarray([player.health], dtype=np.int32),
+        "gold": np.asarray([player.gold], dtype=np.int32),
+        "keys": np.asarray([player.keys], dtype=np.int32),
+        "inventory_ids": np.asarray(inventory_item_codes(player.items, size=max_inventory), dtype=np.int32),
         "monsters_tile": monster_tiles,
         "monsters_active_mask": monster_mask,
         "monsters_hp": monster_hp,

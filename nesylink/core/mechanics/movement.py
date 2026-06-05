@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..constants import MAP_PIXEL_HEIGHT, MAP_PIXEL_WIDTH, TILE_SIZE
-from ..state import move_with_tile_collisions, tile_to_top_left_px
+from ..constants import GRID_HEIGHT, GRID_WIDTH, MAP_PIXEL_HEIGHT, MAP_PIXEL_WIDTH, TILE_SIZE
+from ..state import move_with_tile_collisions, tile_from_position_px, tile_to_top_left_px
 from ..world.rooms import ExitConfig, RoomState, direction_from_entry_name, first_valid_entry_spawn_tile
 
 
@@ -61,6 +61,36 @@ def handle_move(engine: Any, direction: str, result: Any) -> None:
         )
         return
 
+    runtime.last_message = f"MOVE {direction.upper()}"
+    result.events.append(f"move_{direction}")
+
+
+def handle_grid_move(engine: Any, direction: str, result: Any) -> None:
+    runtime = engine.runtime
+    runtime.player.facing = direction
+    dx, dy = {
+        "up": (0, -1),
+        "down": (0, 1),
+        "left": (-1, 0),
+        "right": (1, 0),
+    }[direction]
+    current_tile = tile_from_position_px(runtime.player.position_px, runtime.player.size_px)
+    target_tile = (current_tile[0] + dx, current_tile[1] + dy)
+
+    blocked_reason = grid_blocked_reason(target_tile, runtime.room.blocking_tiles())
+    if blocked_reason is not None:
+        runtime.last_message = "EDGE BLOCKED" if blocked_reason == "bounds" else "BLOCKED"
+        result.events.append("action_blocked")
+        result.event_details.append(
+            {
+                "type": "action_blocked",
+                "reason": blocked_reason,
+                "direction": direction,
+            }
+        )
+        return
+
+    runtime.player.position_px = tile_to_top_left_px(target_tile)
     runtime.last_message = f"MOVE {direction.upper()}"
     result.events.append(f"move_{direction}")
 
@@ -192,3 +222,12 @@ def within_map_bounds(position_px: tuple[float, float]) -> bool:
         0.0 <= position_px[0] <= MAP_PIXEL_WIDTH - TILE_SIZE
         and 0.0 <= position_px[1] <= MAP_PIXEL_HEIGHT - TILE_SIZE
     )
+
+
+def grid_blocked_reason(tile: tuple[int, int], blocking_tiles: set[tuple[int, int]]) -> str | None:
+    x, y = tile
+    if x < 0 or x >= GRID_WIDTH or y < 0 or y >= GRID_HEIGHT:
+        return "bounds"
+    if tile in blocking_tiles:
+        return "wall"
+    return None

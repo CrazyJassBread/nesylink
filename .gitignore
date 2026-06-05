@@ -17,3 +17,6 @@ self_use/
 test.py
 
 tests/
+!tests/
+tests/*
+!tests/test_easy_grid_env.py

@@ -4,12 +4,16 @@ import math
 from typing import Any
 
 from ..constants import MONSTER_HIT_KNOCKBACK_PX, MONSTER_KILL_GOLD_REWARD, MONSTER_STUN_TICKS, TILE_SIZE
-from ..monsters import MonsterState, update_monster
-from ..state import aabb_overlap, entity_center_px, move_with_tile_collisions
+from ..monsters import MonsterState, update_monster, update_monster_grid
+from ..state import aabb_overlap, entity_center_px, move_with_tile_collisions, tile_from_position_px
 
 
 def update_monsters(engine: Any, result: Any) -> None:
     del result
+    if getattr(engine, "control_mode", "pixel") == "grid":
+        update_monsters_grid(engine)
+        return
+
     runtime = engine.runtime
     occupied_tiles = {monster.tile_pos for monster in runtime.room.monsters.values()}
     for monster in runtime.room.monsters.values():
@@ -19,6 +23,33 @@ def update_monsters(engine: Any, result: Any) -> None:
             continue
         occupied_tiles.discard(monster.tile_pos)
         update_monster(monster, runtime.player.position_px, runtime.room.walls, occupied_tiles)
+        occupied_tiles.add(monster.tile_pos)
+
+
+def update_monsters_grid(engine: Any) -> None:
+    runtime = engine.runtime
+    occupied_tiles = {monster.tile_pos for monster in runtime.room.monsters.values()}
+    player_tile = tile_from_position_px(runtime.player.position_px, runtime.player.size_px)
+    for monster in runtime.room.monsters.values():
+        if monster.stun_ticks_remaining > 0:
+            monster.stun_ticks_remaining -= 1
+            monster.last_move_delta_px = (0.0, 0.0)
+            continue
+
+        period = engine.monster_move_periods.get(monster.monster_type, 1)
+        if runtime.step_count % period != 0:
+            monster.last_move_delta_px = (0.0, 0.0)
+            continue
+
+        occupied_tiles.discard(monster.tile_pos)
+        update_monster_grid(
+            monster,
+            player_tile,
+            runtime.room.walls,
+            runtime.room.blocking_tiles(),
+            occupied_tiles,
+            engine.rng,
+        )
         occupied_tiles.add(monster.tile_pos)
 
 

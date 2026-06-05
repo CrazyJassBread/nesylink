@@ -9,6 +9,12 @@ map JSON.
 - `collect_key_easy` -> `NesyLink-CollectKeyEasy-v0`
 - `kill_monsters_easy` -> `NesyLink-KillMonstersEasy-v0`
 - `avoid_traps_easy` -> `NesyLink-AvoidTrapsEasy-v0`
+- `task_1_easy` -> `task_1_easy`
+- `task_2_easy` -> `task_2_easy`
+- `task_3_easy` -> `task_3_easy`
+
+The `task_*_easy` variants reuse the existing task maps and rewards, but expose
+tile-level control and grid-only observations.
 
 ## Use a Task
 

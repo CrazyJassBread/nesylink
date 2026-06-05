@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import random
 from dataclasses import dataclass, field
 
 from .constants import (
@@ -13,6 +14,7 @@ from .constants import (
 from .state import (
     GridPos,
     PixelPos,
+    manhattan_distance,
     move_with_tile_collisions,
     tile_from_position_px,
     tile_to_top_left_px,
@@ -97,6 +99,28 @@ def update_monster(
     _move_towards(monster, player_position_px, wall_tiles, blocking_tiles)
 
 
+def update_monster_grid(
+    monster: MonsterState,
+    player_tile: GridPos,
+    wall_tiles: set[GridPos],
+    blocking_tiles: set[GridPos],
+    occupied_tiles: set[GridPos],
+    rng: random.Random,
+) -> None:
+    if monster.monster_type == "ambusher":
+        if _within_range(monster.tile_pos, player_tile, monster.ambush_range_tiles):
+            monster.activated = True
+        if not monster.activated:
+            monster.last_move_delta_px = (0.0, 0.0)
+            return
+
+    if monster.monster_type == "patroller":
+        _advance_patroller_grid(monster, wall_tiles, blocking_tiles, occupied_tiles, rng)
+        return
+
+    _move_grid_towards_player(monster, player_tile, wall_tiles, blocking_tiles, occupied_tiles, rng)
+
+
 def _build_patrol_points_px(origin_tile: GridPos, patrol_span_tiles: int) -> list[PixelPos]:
     x0, y0 = origin_tile
     x1 = min(GRID_WIDTH - 1, x0 + patrol_span_tiles)
@@ -130,6 +154,92 @@ def _advance_patroller(
             return
 
     _move_towards(monster, target, wall_tiles, blocking_tiles)
+
+
+def _advance_patroller_grid(
+    monster: MonsterState,
+    wall_tiles: set[GridPos],
+    blocking_tiles: set[GridPos],
+    occupied_tiles: set[GridPos],
+    rng: random.Random,
+) -> None:
+    target = monster.current_patrol_target()
+    if target is None:
+        monster.last_move_delta_px = (0.0, 0.0)
+        return
+
+    target_tile = tile_from_position_px(target, monster.size_px)
+    if monster.tile_pos == target_tile:
+        monster.patrol_index = (monster.patrol_index + 1) % len(monster.patrol_points_px)
+        target = monster.current_patrol_target()
+        if target is None:
+            monster.last_move_delta_px = (0.0, 0.0)
+            return
+        target_tile = tile_from_position_px(target, monster.size_px)
+
+    candidates = _neighbor_tiles(monster.tile_pos)
+    rng.shuffle(candidates)
+    current_distance = manhattan_distance(monster.tile_pos, target_tile)
+    valid_candidates = [
+        candidate
+        for candidate in candidates
+        if manhattan_distance(candidate, target_tile) < current_distance
+        and _valid_grid_monster_tile(candidate, wall_tiles, blocking_tiles, occupied_tiles)
+    ]
+    _snap_monster_to_tile(monster, valid_candidates[0] if valid_candidates else monster.tile_pos)
+
+
+def _move_grid_towards_player(
+    monster: MonsterState,
+    player_tile: GridPos,
+    wall_tiles: set[GridPos],
+    blocking_tiles: set[GridPos],
+    occupied_tiles: set[GridPos],
+    rng: random.Random,
+) -> None:
+    current_distance = manhattan_distance(monster.tile_pos, player_tile)
+    candidates = _neighbor_tiles(monster.tile_pos)
+    rng.shuffle(candidates)
+    valid_candidates = [
+        candidate
+        for candidate in candidates
+        if manhattan_distance(candidate, player_tile) < current_distance
+        and _valid_grid_monster_tile(candidate, wall_tiles, blocking_tiles, occupied_tiles)
+    ]
+    _snap_monster_to_tile(monster, valid_candidates[0] if valid_candidates else monster.tile_pos)
+
+
+def _neighbor_tiles(tile: GridPos) -> list[GridPos]:
+    x, y = tile
+    return [
+        (x, y - 1),
+        (x, y + 1),
+        (x - 1, y),
+        (x + 1, y),
+    ]
+
+
+def _valid_grid_monster_tile(
+    tile: GridPos,
+    wall_tiles: set[GridPos],
+    blocking_tiles: set[GridPos],
+    occupied_tiles: set[GridPos],
+) -> bool:
+    x, y = tile
+    if x < 0 or x >= GRID_WIDTH or y < 0 or y >= GRID_HEIGHT:
+        return False
+    if tile in wall_tiles or tile in blocking_tiles or tile in occupied_tiles:
+        return False
+    return True
+
+
+def _snap_monster_to_tile(monster: MonsterState, tile: GridPos) -> None:
+    previous_position = monster.position_px
+    monster.position_px = tile_to_top_left_px(tile)
+    monster.last_move_delta_px = (
+        monster.position_px[0] - previous_position[0],
+        monster.position_px[1] - previous_position[1],
+    )
 
 
 def _move_towards(

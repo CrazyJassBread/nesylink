@@ -13,10 +13,24 @@ from . import combat, interactions, movement, progress
 
 
 class DungeonEngine:
-    def __init__(self, room_file: str | Path, *, move_speed_px: float = PLAYER_SPEED_PX_PER_TICK):
+    def __init__(
+        self,
+        room_file: str | Path,
+        *,
+        move_speed_px: float = PLAYER_SPEED_PX_PER_TICK,
+        control_mode: str = "pixel",
+        monster_move_periods: dict[str, int] | None = None,
+    ):
         self.room_manager = RoomManager(room_file)
         self.map_id = self.room_manager.room_file.stem
         self.move_speed_px = max(1, int(move_speed_px))
+        if control_mode not in {"pixel", "grid"}:
+            raise ValueError("control_mode must be 'pixel' or 'grid'")
+        self.control_mode = str(control_mode)
+        self.monster_move_periods = {
+            str(monster_type): max(1, int(period))
+            for monster_type, period in (monster_move_periods or {}).items()
+        }
         self.max_monster_slots = max(1, self.room_manager.max_monsters)
         self.world_completion_via_exit = any(
             exit_cfg.complete_task
@@ -38,6 +52,11 @@ class DungeonEngine:
         return self.runtime
 
     def step(self, action: int) -> EngineStepResult:
+        if self.control_mode == "grid":
+            return self._step_grid(action)
+        return self._step_pixel(action)
+
+    def _step_pixel(self, action: int) -> EngineStepResult:
         runtime = self.runtime
         result = EngineStepResult(
             progress_start_pos=runtime.player.position_px,
@@ -94,6 +113,70 @@ class DungeonEngine:
 
         result.last_message = runtime.last_message
         return result
+
+    def _step_grid(self, action: int) -> EngineStepResult:
+        runtime = self.runtime
+        result = EngineStepResult(
+            progress_start_pos=runtime.player.position_px,
+            progress_start_room_id=runtime.room.room_id,
+        )
+        action_started_this_step = False
+
+        self._advance_player_action_state()
+
+        move_direction = MOVE_ACTION_TO_DIRECTION.get(action)
+        if move_direction is not None:
+            result.move_direction = move_direction
+            movement.handle_grid_move(self, move_direction, result)
+        elif action == ACTION_A:
+            if not interactions.try_interaction(self, result):
+                action_started_this_step = trigger_equipment(self, EquipmentSlot.A, result).used
+        elif action == ACTION_B:
+            action_started_this_step = trigger_equipment(self, EquipmentSlot.B, result).used
+        elif action == ACTION_NOOP:
+            runtime.last_message = "WAIT"
+            result.events.append("noop")
+
+        if runtime.player.health > 0 and move_direction is not None:
+            movement.resolve_transition(self, move_direction, result)
+        if runtime.player.health > 0:
+            interactions.resolve_tile_effects(self, result)
+
+        runtime.step_count += 1
+
+        if runtime.player.health > 0:
+            combat.update_monsters(self, result)
+        if runtime.player.health > 0:
+            combat.resolve_monster_contact(self, result)
+
+        self._finalize_step(result, action_started_this_step)
+        return result
+
+    def _finalize_step(self, result: EngineStepResult, action_started_this_step: bool) -> None:
+        runtime = self.runtime
+        if runtime.player.health <= 0:
+            result.terminated = True
+            runtime.pending_reset = True
+            runtime.last_message = "GAME OVER"
+            result.events.append("agent_dead")
+            result.terminated_reason = "agent_dead"
+        elif "environment_completed" in result.events or (
+            not self.world_completion_via_exit and progress.all_chests_opened(self.room_manager)
+        ):
+            result.terminated = True
+            runtime.pending_reset = True
+            runtime.last_message = "WORLD COMPLETE"
+            if "environment_completed" not in result.events:
+                result.events.append("environment_completed")
+            result.terminated_reason = "world_completed"
+
+        if progress.step_made_progress(runtime, result.progress_start_pos, result.progress_start_room_id, result.events):
+            runtime.no_progress_steps = 0
+        else:
+            runtime.no_progress_steps += 1
+        self._finalize_player_action_state(action_started_this_step)
+
+        result.last_message = runtime.last_message
 
     def hud_lines(self) -> tuple[str, str]:
         runtime = self.runtime

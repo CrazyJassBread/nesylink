@@ -21,6 +21,11 @@ class EnvConfig:
     reward_kwargs: dict[str, float] | None
     max_steps: int | None
     action_repeat: int
+    control_mode: str
+    observation_mode: str
+    monster_move_periods: dict[str, int]
+    max_monsters: int | None
+    max_inventory: int
     mission: str
     gym_id: str | None
     task_id: str | None
@@ -38,6 +43,11 @@ def make_env(
     reward_kwargs: dict[str, float] | None = None,
     max_steps: int | None = None,
     action_repeat: int | None = None,
+    control_mode: str | None = None,
+    observation_mode: str | None = None,
+    monster_move_periods: dict[str, int] | None = None,
+    max_monsters: int | None = None,
+    max_inventory: int | None = None,
     mission: str | None = None,
     **kwargs: Any,
 ):
@@ -51,6 +61,11 @@ def make_env(
         reward_kwargs=reward_kwargs,
         max_steps=max_steps,
         action_repeat=action_repeat,
+        control_mode=control_mode,
+        observation_mode=observation_mode,
+        monster_move_periods=monster_move_periods,
+        max_monsters=max_monsters,
+        max_inventory=max_inventory,
         mission=mission,
     )
     reward_fn = load_reward(
@@ -64,6 +79,11 @@ def make_env(
         reward_fn=reward_fn,
         max_steps=config.max_steps,
         action_repeat=config.action_repeat,
+        control_mode=config.control_mode,
+        observation_mode=config.observation_mode,
+        monster_move_periods=config.monster_move_periods,
+        max_monsters=config.max_monsters,
+        max_inventory=config.max_inventory,
         mission=config.mission,
         map_id=config.map_id,
         **kwargs,
@@ -89,6 +109,11 @@ def _resolve_env_config(
     reward_kwargs: dict[str, float] | None,
     max_steps: int | None,
     action_repeat: int | None,
+    control_mode: str | None,
+    observation_mode: str | None,
+    monster_move_periods: dict[str, int] | None,
+    max_monsters: int | None,
+    max_inventory: int | None,
     mission: str | None,
 ) -> EnvConfig:
     task = get_task(task_id) if task_id is not None else None
@@ -112,6 +137,13 @@ def _resolve_env_config(
         reward_kwargs=resolved_reward_kwargs,
         max_steps=_override(max_steps, task.max_steps if task is not None else None),
         action_repeat=_override(action_repeat, task.action_repeat if task is not None else 1),
+        control_mode=_override(control_mode, task.control_mode if task is not None else "pixel"),
+        observation_mode=_override(observation_mode, task.observation_mode if task is not None else "full"),
+        monster_move_periods=dict(
+            _override(monster_move_periods, task.monster_move_periods if task is not None else {})
+        ),
+        max_monsters=_override(max_monsters, task.max_monsters if task is not None else None),
+        max_inventory=_override(max_inventory, task.max_inventory if task is not None else 2),
         mission=_override(mission, task.mission if task is not None else ""),
         gym_id=task.gym_id if task is not None else None,
         task_id=task.task_id if task is not None else None,

@@ -20,7 +20,7 @@ from ..core.constants import (
 )
 from ..core.mechanics.engine import DungeonEngine
 from ..core.info import build_info
-from ..core.observation import build_observation
+from ..core.observation import build_grid_observation, build_observation
 from ..core.rendering import render_frame
 from ..core.state import tile_from_position_px
 from .registry import register_wrapper
@@ -102,7 +102,7 @@ def with_default_seed(env: gym.Env, seed: int) -> gym.Env:
     return seed_action_space(wrapped, seed)
 
 
-def build_observation_space(max_monster_slots: int) -> spaces.Dict:
+def build_observation_space(max_monster_slots: int, *, max_inventory: int = 2) -> spaces.Dict:
     return spaces.Dict(
         {
             "grid": spaces.Box(low=0, high=8, shape=(GRID_HEIGHT, GRID_WIDTH), dtype=np.uint8),
@@ -122,7 +122,7 @@ def build_observation_space(max_monster_slots: int) -> spaces.Dict:
             "inventory_ids": spaces.Box(
                 low=0,
                 high=max(ITEM_NAME_TO_ID.values()),
-                shape=(2,),
+                shape=(max_inventory,),
                 dtype=np.int32,
             ),
             "monsters_position_px": spaces.Box(
@@ -153,6 +153,46 @@ def build_observation_space(max_monster_slots: int) -> spaces.Dict:
     )
 
 
+def build_grid_observation_space(max_monster_slots: int, *, max_inventory: int = 2) -> spaces.Dict:
+    return spaces.Dict(
+        {
+            "grid": spaces.Box(low=0, high=8, shape=(GRID_HEIGHT, GRID_WIDTH), dtype=np.uint8),
+            "player_tile": spaces.Box(
+                low=np.array([0, 0], dtype=np.int32),
+                high=np.array([GRID_WIDTH - 1, GRID_HEIGHT - 1], dtype=np.int32),
+                dtype=np.int32,
+            ),
+            "health": spaces.Box(low=0, high=99, shape=(1,), dtype=np.int32),
+            "gold": spaces.Box(low=0, high=9999, shape=(1,), dtype=np.int32),
+            "keys": spaces.Box(low=0, high=99, shape=(1,), dtype=np.int32),
+            "inventory_ids": spaces.Box(
+                low=0,
+                high=max(ITEM_NAME_TO_ID.values()),
+                shape=(max_inventory,),
+                dtype=np.int32,
+            ),
+            "monsters_tile": spaces.Box(
+                low=-1,
+                high=max(GRID_WIDTH, GRID_HEIGHT),
+                shape=(max_monster_slots, 2),
+                dtype=np.int32,
+            ),
+            "monsters_active_mask": spaces.Box(
+                low=0,
+                high=1,
+                shape=(max_monster_slots,),
+                dtype=np.bool_,
+            ),
+            "monsters_hp": spaces.Box(
+                low=0,
+                high=99,
+                shape=(max_monster_slots,),
+                dtype=np.int32,
+            ),
+        }
+    )
+
+
 class BaseGameEnv(gym.Env):
     metadata = {"render_modes": ["rgb_array"], "render_fps": TARGET_FPS}
 
@@ -163,6 +203,11 @@ class BaseGameEnv(gym.Env):
         auto_reset_on_step: bool = True,
         move_speed_px: float = 1.0,
         action_repeat: int = 1,
+        control_mode: str = "pixel",
+        observation_mode: str = "full",
+        monster_move_periods: dict[str, int] | None = None,
+        max_monsters: int | None = None,
+        max_inventory: int = 2,
         reward_fn: Any | None = None,
         max_steps: int | None = None,
         mission: str = "",
@@ -172,20 +217,47 @@ class BaseGameEnv(gym.Env):
         super().__init__()
         if action_repeat < 1:
             raise ValueError("action_repeat must be >= 1")
+        if control_mode not in {"pixel", "grid"}:
+            raise ValueError("control_mode must be 'pixel' or 'grid'")
+        if observation_mode not in {"full", "grid"}:
+            raise ValueError("observation_mode must be 'full' or 'grid'")
+        if max_monsters is not None and int(max_monsters) < 1:
+            raise ValueError("max_monsters must be >= 1")
+        if int(max_inventory) < 1:
+            raise ValueError("max_inventory must be >= 1")
         self.render_mode = render_mode
         self.auto_reset_on_step = bool(auto_reset_on_step)
         self.action_repeat = int(action_repeat)
         self.native_action_repeat = self.action_repeat
+        self.control_mode = str(control_mode)
+        self.observation_mode = str(observation_mode)
+        self.max_inventory = int(max_inventory)
         self.reward_fn = reward_fn
         self.max_steps = None if max_steps is None else int(max_steps)
         self.mission = str(mission)
         self.last_reward_info: dict[str, Any] = {}
-        self.engine = DungeonEngine(room_file, move_speed_px=move_speed_px)
+        self.engine = DungeonEngine(
+            room_file,
+            move_speed_px=move_speed_px,
+            control_mode=self.control_mode,
+            monster_move_periods=monster_move_periods,
+        )
         if map_id is not None:
             self.engine.map_id = str(map_id)
+        if max_monsters is not None:
+            self.engine.max_monster_slots = int(max_monsters)
 
         self.action_space = spaces.Discrete(len(ACTION_LABELS))
-        self.observation_space = build_observation_space(self.engine.max_monster_slots)
+        if self.observation_mode == "grid":
+            self.observation_space = build_grid_observation_space(
+                self.engine.max_monster_slots,
+                max_inventory=self.max_inventory,
+            )
+        else:
+            self.observation_space = build_observation_space(
+                self.engine.max_monster_slots,
+                max_inventory=self.max_inventory,
+            )
 
     def reset(
         self,
@@ -225,7 +297,8 @@ class BaseGameEnv(gym.Env):
         engine_result = None
         inner_steps = 0
 
-        for _ in range(self.action_repeat):
+        repeats = 1 if self.control_mode == "grid" else self.action_repeat
+        for _ in range(repeats):
             result = self.engine.step(action)
             merged_events.extend(result.events)
             merged_event_details.extend(result.event_details)
@@ -281,10 +354,18 @@ class BaseGameEnv(gym.Env):
         return self.engine.hud_lines()
 
     def _get_obs(self) -> dict[str, np.ndarray]:
+        if self.observation_mode == "grid":
+            return build_grid_observation(
+                self.engine.runtime.room,
+                self.engine.runtime.player,
+                self.engine.max_monster_slots,
+                max_inventory=self.max_inventory,
+            )
         return build_observation(
             self.engine.runtime.room,
             self.engine.runtime.player,
             self.engine.max_monster_slots,
+            max_inventory=self.max_inventory,
         )
 
     def _get_info(
@@ -305,6 +386,10 @@ class BaseGameEnv(gym.Env):
             movement_pixels=self.engine.move_speed_px,
             action_repeat=self.action_repeat,
             inner_steps=inner_steps,
+            control_mode=self.control_mode,
+            observation_mode=self.observation_mode,
+            monster_move_periods=self.engine.monster_move_periods,
+            max_monster_slots=self.engine.max_monster_slots,
             engine_terminated=engine_terminated,
             terminal_reason=terminal_reason,
             debug_message=debug_message,
@@ -329,6 +414,11 @@ class DungeonEnv(BaseGameEnv):
         auto_reset_on_step: bool = True,
         move_speed_px: float = 1.0,
         action_repeat: int = 1,
+        control_mode: str = "pixel",
+        observation_mode: str = "full",
+        monster_move_periods: dict[str, int] | None = None,
+        max_monsters: int | None = None,
+        max_inventory: int = 2,
         reward_fn: Any | None = None,
         max_steps: int | None = None,
         mission: str = "",
@@ -341,6 +431,11 @@ class DungeonEnv(BaseGameEnv):
             auto_reset_on_step=auto_reset_on_step,
             move_speed_px=move_speed_px,
             action_repeat=action_repeat,
+            control_mode=control_mode,
+            observation_mode=observation_mode,
+            monster_move_periods=monster_move_periods,
+            max_monsters=max_monsters,
+            max_inventory=max_inventory,
             reward_fn=reward_fn,
             max_steps=max_steps,
             mission=mission,
@@ -411,6 +506,11 @@ class GymDungeonEnv(DungeonEnv):
         auto_reset_on_step: bool = False,
         move_speed_px: float = 1.0,
         action_repeat: int = 1,
+        control_mode: str = "pixel",
+        observation_mode: str = "full",
+        monster_move_periods: dict[str, int] | None = None,
+        max_monsters: int | None = None,
+        max_inventory: int = 2,
         reward_fn: Any | None = None,
         max_steps: int | None = None,
         mission: str = "",
@@ -423,6 +523,11 @@ class GymDungeonEnv(DungeonEnv):
             auto_reset_on_step=auto_reset_on_step,
             move_speed_px=move_speed_px,
             action_repeat=action_repeat,
+            control_mode=control_mode,
+            observation_mode=observation_mode,
+            monster_move_periods=monster_move_periods,
+            max_monsters=max_monsters,
+            max_inventory=max_inventory,
             reward_fn=reward_fn,
             max_steps=max_steps,
             mission=mission,
